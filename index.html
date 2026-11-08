@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="印尼話翻譯">
 <title>印尼話翻譯</title>
-<link rel="manifest" href="manifest.json?v=1">
+<link rel="manifest" href="manifest.json?v=2">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
 <style>
@@ -60,6 +60,9 @@ dialog select{padding:9px;border:1px solid var(--line);border-radius:10px;backgr
 .row{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
 .row button{border:0;border-radius:10px;padding:10px 16px;font-size:15px;background:var(--bg);color:var(--text)}
 .row button.pri{background:var(--red);color:#fff}
+#inapp{display:none;background:#fff4d6;color:#5a4300;padding:10px 14px;font-size:14px;line-height:1.5;border-bottom:1px solid #f0d98a}
+#inapp a{display:inline-block;margin-top:6px;background:var(--red);color:#fff;text-decoration:none;border-radius:10px;padding:8px 14px;font-weight:600}
+@media (prefers-color-scheme:dark){#inapp{background:#3a3010;color:#f3e2a6;border-color:#5a4a18}}
 .hint{font-size:12px;color:var(--sub);line-height:1.5;margin-top:10px}
 </style>
 </head>
@@ -70,6 +73,7 @@ dialog select{padding:9px;border:1px solid var(--line);border-radius:10px;backgr
   <button id="set" title="設定">設定</button>
 </header>
 
+<div id="inapp"></div>
 <div id="log"><div class="empty" id="empty">按下面的按鈕直接開口說，<br>說完會自動翻譯並<b>唸出來</b>。<br><br>🇹🇼 藍色：我說中文 → 印尼話<br>🇮🇩 紅色：對方說印尼話 → 中文</div></div>
 <div id="status"></div>
 <form class="type" id="tf"><input id="ti" placeholder="也可以打字（自動判斷中文或印尼文）" autocomplete="off" enterkeyhint="send"><button>翻譯</button></form>
@@ -90,6 +94,26 @@ dialog select{padding:9px;border:1px solid var(--line);border-radius:10px;backgr
 
 <script>
 const $ = s => document.querySelector(s);
+// ---------- 偵測 LINE / FB 等 App 內建瀏覽器（不能用麥克風）→ 改用 Chrome / Safari 開 ----------
+const UA = navigator.userAgent;
+const isAndroid = /Android/i.test(UA), isIOS = /iPhone|iPad|iPod/i.test(UA);
+const inLine = /\bLine\//i.test(UA);
+const inApp = inLine || /FBAN|FBAV|FB_IAB|Instagram|MicroMessenger|Messenger|KAKAOTALK|; wv\)/i.test(UA);
+const APP_URL = location.origin + location.pathname;
+if (inLine && !/openExternalBrowser=1/.test(location.search)) {
+  // LINE 支援這個參數：會自動改用手機預設瀏覽器打開
+  location.replace(APP_URL + '?openExternalBrowser=1');
+}
+function showInApp() {
+  const b = document.getElementById('inapp'); if (!b) return;
+  const chrome = 'intent://' + location.host + location.pathname + '#Intent;scheme=https;package=com.android.chrome;end';
+  b.innerHTML = isAndroid
+    ? '⚠️ 你現在是在 App 內建的瀏覽器裡，這裡不能用麥克風。<br><a href="' + chrome + '">用 Chrome 打開</a>'
+    : '⚠️ 你現在是在 App 內建的瀏覽器裡，這裡不能用麥克風。<br>請按右下角或右上角的「⋯」→「用 Safari 開啟」。';
+  b.style.display = 'block';
+}
+if (inApp) addEventListener('DOMContentLoaded', showInApp);
+
 const LANG = {
   zh: {rec: 'zh-TW', tr: 'zh-TW', tts: 'zh-TW', gtts: 'zh-TW', name: '中文'},
   id: {rec: 'id-ID', tr: 'id', tts: 'id-ID', gtts: 'id', name: '印尼話'}
@@ -247,9 +271,12 @@ function start(from) {
     r._last = fin + tmp;
   };
   r.onerror = e => {
-    const m = {'not-allowed': '請允許使用麥克風（瀏覽器設定 → 麥克風）', 'service-not-allowed': '請允許使用麥克風與語音辨識', 'no-speech': '沒有聽到聲音，請再按一次', 'network': '語音辨識需要網路', 'audio-capture': '找不到麥克風'}[e.error];
+    const deny = inApp ? '這個 App 內建的瀏覽器不能用麥克風，請照上方提示改用 ' + (isIOS ? 'Safari' : 'Chrome') + ' 開啟' : isIOS ? '麥克風被擋住了：請到 設定 → Safari → 麥克風 → 允許，然後重新整理' : '麥克風被擋住了：請點網址列左邊的圖示 → 權限 → 麥克風 → 允許，然後重新整理';
+    const m = {'not-allowed': deny, 'service-not-allowed': deny, 'no-speech': '沒有聽到聲音，請再按一次', 'network': '語音辨識需要網路', 'audio-capture': '找不到麥克風'}[e.error];
     if (e.error !== 'aborted') status(m || ('語音辨識錯誤：' + e.error), true);
+    if (inApp && /not-allowed/.test(e.error)) showInApp();
     r._err = true;
+    if (rec === r) { liveEl?.remove(); liveEl = null; rec = null; recLang = null; setBtn(); }
   };
   r.onend = () => {
     if (rec !== r) return;
